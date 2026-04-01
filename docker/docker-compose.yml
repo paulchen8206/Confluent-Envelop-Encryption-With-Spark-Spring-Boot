@@ -1,0 +1,243 @@
+services:
+  minio:
+    image: minio/minio:latest
+    hostname: minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 2; done
+        mc mb --ignore-existing local/secure-customer-events
+        mc mb --ignore-existing local/event-inbox
+
+  localstack:
+    image: localstack/localstack:3.5
+    hostname: localstack
+    container_name: localstack
+    environment:
+      SERVICES: kms
+      DEBUG: 0
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+
+  localstack-init:
+    image: localstack/localstack:3.5
+    depends_on:
+      - localstack
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until awslocal kms list-keys >/dev/null 2>&1; do sleep 2; done
+        KEY_ID=$$(awslocal kms create-key --description "customer pii kek" --query 'KeyMetadata.KeyId' --output text)
+        awslocal kms create-alias --alias-name alias/customer-pii-kek --target-key-id "$$KEY_ID" || true
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    hostname: zookeeper
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - kafka
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until kafka-topics --bootstrap-server kafka:29092 --list >/dev/null 2>&1; do sleep 2; done
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic _dek_registry_keys --partitions 1 --replication-factor 1
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      - kafka
+      - kafka-init
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: 1
+      SCHEMA_REGISTRY_DEK_REGISTRY_TOPIC: _dek_registry_keys
+
+  schema-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      - schema-registry
+    volumes:
+      - ../scripts:/scripts
+    entrypoint: ["sh", "-c", "chmod +x /scripts/register-schema.sh && /scripts/register-schema.sh"]
+
+  kafka-connect:
+    image: confluentinc/cp-kafka-connect:7.7.1
+    hostname: kafka-connect
+    container_name: kafka-connect
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+      - schema-registry
+      - kafka-connect
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: local-connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+
+  event-generator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.event-generator
+    container_name: event-generator
+    depends_on:
+      - minio-init
+    environment:
+      SERVER_PORT: 8082
+      APP_MINIO_ENDPOINT: http://minio:9000
+      APP_MINIO_ACCESS_KEY: minioadmin
+      APP_MINIO_SECRET_KEY: minioadmin
+      APP_MINIO_BUCKET: event-inbox
+      APP_GENERATOR_INTERVAL_MS: 5000
+
+  producer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.producer
+    container_name: spring-producer
+    depends_on:
+      - kafka
+      - schema-registry
+      - schema-init
+      - minio-init
+      - localstack-init
+      - event-generator
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: 8080
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      APP_TOPIC: secure-customer-events
+      APP_FIELD_ENCRYPTION_SECRET: demo-field-secret-change-me
+      APP_CONSUMER_GROUP: secure-consumer-group
+      APP_KEK_NAME: customer-pii-kek
+      APP_KMS_TYPE: aws-kms
+      APP_KMS_KEY_ID: alias/customer-pii-kek
+      APP_KMS_REGION: us-east-1
+      APP_KMS_ENDPOINT: http://localstack:4566
+      APP_KMS_ACCESS_KEY_ID: test
+      APP_KMS_SECRET_ACCESS_KEY: test
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ENDPOINT_URL_KMS: http://localstack:4566
+      APP_MINIO_INBOX_ENDPOINT: http://minio:9000
+      APP_MINIO_INBOX_ACCESS_KEY: minioadmin
+      APP_MINIO_INBOX_SECRET_KEY: minioadmin
+      APP_MINIO_INBOX_BUCKET: event-inbox
+      APP_SPARK_INTERVAL_MS: 3000
+
+  consumer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.consumer
+    container_name: spring-consumer
+    depends_on:
+      - kafka
+      - schema-registry
+      - schema-init
+      - minio-init
+      - localstack-init
+    environment:
+      SERVER_PORT: 8081
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      APP_TOPIC: secure-customer-events
+      APP_FIELD_ENCRYPTION_SECRET: demo-field-secret-change-me
+      APP_CONSUMER_GROUP: secure-consumer-group
+      APP_KEK_NAME: customer-pii-kek
+      APP_KMS_TYPE: aws-kms
+      APP_KMS_KEY_ID: alias/customer-pii-kek
+      APP_KMS_REGION: us-east-1
+      APP_KMS_ENDPOINT: http://localstack:4566
+      APP_KMS_ACCESS_KEY_ID: test
+      APP_KMS_SECRET_ACCESS_KEY: test
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_ENDPOINT_URL_KMS: http://localstack:4566
+      APP_MINIO_ENDPOINT: http://minio:9000
+      APP_MINIO_ACCESS_KEY: minioadmin
+      APP_MINIO_SECRET_KEY: minioadmin
+      APP_MINIO_BUCKET: secure-customer-events

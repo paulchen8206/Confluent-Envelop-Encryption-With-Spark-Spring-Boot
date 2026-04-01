@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: confluent-envelope
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: confluent-envelope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: confluentinc/cp-zookeeper:7.7.1
+        ports:
+        - containerPort: 2181
+        env:
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        - name: ZOOKEEPER_TICK_TIME
+          value: "2000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: confluent-envelope
+spec:
+  selector:
+    app: zookeeper
+  ports:
+  - port: 2181
+    targetPort: 2181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: confluent-envelope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+      - name: kafka
+        image: confluentinc/cp-kafka:7.7.1
+        ports:
+        - containerPort: 9092
+        env:
+        - name: KAFKA_BROKER_ID
+          value: "1"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: zookeeper:2181
+        - name: KAFKA_LISTENERS
+          value: PLAINTEXT://0.0.0.0:9092
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: PLAINTEXT://kafka:9092
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: confluent-envelope
+spec:
+  selector:
+    app: kafka
+  ports:
+  - port: 9092
+    targetPort: 9092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: confluent-envelope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schema-registry
+  template:
+    metadata:
+      labels:
+        app: schema-registry
+    spec:
+      containers:
+      - name: schema-registry
+        image: confluentinc/cp-schema-registry:7.7.1
+        ports:
+        - containerPort: 8081
+        env:
+        - name: SCHEMA_REGISTRY_HOST_NAME
+          value: schema-registry
+        - name: SCHEMA_REGISTRY_LISTENERS
+          value: http://0.0.0.0:8081
+        - name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS
+          value: PLAINTEXT://kafka:9092
+        - name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: SCHEMA_REGISTRY_DEK_REGISTRY_TOPIC
+          value: _dek_registry_keys
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: confluent-envelope
+spec:
+  selector:
+    app: schema-registry
+  ports:
+  - port: 8081
+    targetPort: 8081
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: schema-init
+  namespace: confluent-envelope
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: schema-init
+        image: curlimages/curl:8.8.0
+        command: ["sh", "-c"]
+        args:
+        - |
+          sleep 15;
+          curl -s -X POST \
+            -H 'Content-Type: application/vnd.schemaregistry.v1+json' \
+            --data '{"schemaType":"JSON","schema":"{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"title\":\"CustomerEvent\",\"type\":\"object\",\"properties\":{\"eventId\":{\"type\":\"string\"},\"customerId\":{\"type\":\"string\"},\"fullName\":{\"type\":\"string\"},\"ssn\":{\"type\":\"string\",\"confluent:tags\":[\"PII\"]},\"action\":{\"type\":\"string\"}},\"required\":[\"eventId\",\"customerId\",\"fullName\",\"ssn\",\"action\"]}","ruleSet":{"domainRules":[{"name":"encrypt-pii","kind":"TRANSFORM","mode":"WRITEREAD","type":"ENCRYPT","tags":["PII"],"params":{"encrypt.kek.name":"customer-pii-kek","encrypt.kms.type":"local-kms","encrypt.kms.key.id":"local-demo-master-key"},"onFailure":"ERROR,NONE"}]}}' \
+            http://schema-registry:8081/subjects/secure-customer-events-value/versions;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-producer
+  namespace: confluent-envelope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-producer
+  template:
+    metadata:
+      labels:
+        app: spring-producer
+    spec:
+      containers:
+      - name: spring-producer
+        image: producer-app:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: kafka:9092
+        - name: SCHEMA_REGISTRY_URL
+          value: http://schema-registry:8081
+        - name: APP_TOPIC
+          value: secure-customer-events
+        - name: APP_KMS_KEY_SECRET
+          value: local-master-key-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-producer
+  namespace: confluent-envelope
+spec:
+  selector:
+    app: spring-producer
+  ports:
+  - port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-consumer
+  namespace: confluent-envelope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spring-consumer
+  template:
+    metadata:
+      labels:
+        app: spring-consumer
+    spec:
+      containers:
+      - name: spring-consumer
+        image: consumer-app:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: SERVER_PORT
+          value: "8081"
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: kafka:9092
+        - name: SCHEMA_REGISTRY_URL
+          value: http://schema-registry:8081
+        - name: APP_TOPIC
+          value: secure-customer-events
+        - name: APP_KMS_KEY_SECRET
+          value: local-master-key-secret
