@@ -1,4 +1,4 @@
-# Confluent Envelope Encryption With Spring Boot
+# <span style="color: #E74C3C">Confluent Envelope Encryption With Spring Boot</span>
 
 Multi-module Spring Boot project with:
 - `common`: shared event model
@@ -10,12 +10,12 @@ Multi-module Spring Boot project with:
 - JSON Schema pre-registration with field-level encryption rule for `ssn`
 - LocalStack-backed AWS KMS for KEK management in local container runs
 
-## Modules
+## <span style="color: #E67E22">Modules</span>
 - `common`
 - `producer-app`
 - `consumer-app`
 
-## Build
+## <span style="color: #F1C40F">Build</span>
 
 From project root:
 
@@ -23,7 +23,7 @@ From project root:
 ./mvnw clean package
 ```
 
-## Integration Test (Testcontainers)
+## <span style="color: #2ECC71">Integration Test (Testcontainers)</span>
 
 Producer module includes a Kafka + Schema Registry integration test that also verifies schema registration.
 
@@ -37,7 +37,7 @@ Note:
 - Docker must be running for this test to execute.
 - If Docker is unavailable, the test is skipped automatically.
 
-## Run with Docker Compose
+## <span style="color: #3498DB">Run with Docker Compose</span>
 
 From project root:
 
@@ -55,7 +55,7 @@ sh ../scripts/send-event.sh
 Producer API endpoint:
 - `http://localhost:8080/api/events`
 
-## Run in Kubernetes
+## <span style="color: #9B59B6">Run in Kubernetes</span>
 
 1. Build module images locally:
 
@@ -84,7 +84,7 @@ kubectl -n confluent-envelope port-forward svc/spring-producer 8080:8080
 kubectl -n confluent-envelope logs deploy/spring-consumer -f
 ```
 
-## Notes
+## <span style="color: #1ABC9C">Notes</span>
 - Docker Compose includes:
 	- MinIO on `http://localhost:9000` (console `http://localhost:9001`)
 	- LocalStack KMS on `http://localhost:4566`

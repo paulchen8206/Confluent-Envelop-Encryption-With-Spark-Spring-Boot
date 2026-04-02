@@ -1,6 +1,6 @@
-# Runbook
+# <span style="color: #C0392B">Runbook</span>
 
-## Purpose
+## <span style="color: #27AE60">Purpose</span>
 This runbook documents day-to-day operations for the local event pipeline stack:
 - MinIO inbox and sink buckets
 - Event generator
@@ -15,7 +15,7 @@ All commands assume execution from project root:
 cd /Users/pchen/mygithub/Confluent-Envelop-Encryption-With-Spring
 ```
 
-## Key Endpoints
+## <span style="color: #E67E22">Key Endpoints</span>
 - Producer API: `http://localhost:8080/api/events`
 - Schema Registry: `http://localhost:8081`
 - Kafka Connect: `http://localhost:8083`
@@ -24,32 +24,32 @@ cd /Users/pchen/mygithub/Confluent-Envelop-Encryption-With-Spring
 - MinIO Console: `http://localhost:9001`
 - LocalStack: `http://localhost:4566`
 
-## 1. Start and Stop
+## <span style="color: #3498DB">1. Start and Stop</span>
 
-### Start full stack
+### <span style="color: #8E44AD">Start full stack</span>
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-### Check service status
+### <span style="color: #1ABC9C">Check service status</span>
 ```bash
 docker compose -f docker/docker-compose.yml ps
 ```
 
-### Stop without deleting volumes
+### <span style="color: #E74C3C">Stop without deleting volumes</span>
 ```bash
 docker compose -f docker/docker-compose.yml down
 ```
 
-### Clean reboot (delete containers, network, volumes)
+### <span style="color: #F1C40F">Clean reboot (delete containers, network, volumes)</span>
 ```bash
 docker compose -f docker/docker-compose.yml down -v
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-## 2. Health Verification
+## <span style="color: #884EA0">2. Health Verification</span>
 
-### Application and platform health
+### <span style="color: #2ECC71">Application and platform health</span>
 ```bash
 curl -s http://localhost:8080/actuator/health
 curl -s http://localhost:8085/actuator/health
@@ -61,16 +61,16 @@ Expected:
 - Kafka UI health is `UP`
 - Kafka Connect responds (empty list is valid if no connectors)
 
-### Core service logs
+### <span style="color: #D35400">Core service logs</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs producer --tail=80
 docker compose -f docker/docker-compose.yml logs consumer --tail=80
 docker compose -f docker/docker-compose.yml logs event-generator --tail=80
 ```
 
-## 3. KMS and KEK Operations
+## <span style="color: #1E8BC3">3. KMS and KEK Operations</span>
 
-### Verify KMS alias exists
+### <span style="color: #C0392B">Verify KMS alias exists</span>
 ```bash
 docker compose -f docker/docker-compose.yml exec -T localstack awslocal kms list-aliases
 ```
@@ -78,7 +78,7 @@ docker compose -f docker/docker-compose.yml exec -T localstack awslocal kms list
 Expected alias:
 - `alias/customer-pii-kek`
 
-### Create alias if missing
+### <span style="color: #9B59B6">Create alias if missing</span>
 ```bash
 docker compose -f docker/docker-compose.yml exec -T localstack sh -lc '
 KEY_ID=$(awslocal kms create-key --description "customer pii kek" --query "KeyMetadata.KeyId" --output text)
@@ -87,9 +87,9 @@ echo "ALIAS_CREATED_FOR=$KEY_ID"
 '
 ```
 
-## 4. Kafka and Schema Operations
+## <span style="color: #E74C3C">4. Kafka and Schema Operations</span>
 
-### Verify required topics
+### <span style="color: #1ABC9C">Verify required topics</span>
 ```bash
 docker compose -f docker/docker-compose.yml exec -T kafka kafka-topics --bootstrap-server kafka:29092 --list
 ```
@@ -99,20 +99,20 @@ Expected topics include:
 - `_schemas`
 - `_dek_registry_keys`
 
-### Verify DEK registry topic offset
+### <span style="color: #F1C40F">Verify DEK registry topic offset</span>
 ```bash
 docker compose -f docker/docker-compose.yml exec -T kafka kafka-get-offsets --bootstrap-server kafka:29092 --topic _dek_registry_keys
 ```
 
-### Verify schema registration
+### <span style="color: #3498DB">Verify schema registration</span>
 ```bash
 curl -s http://localhost:8081/subjects
 curl -s http://localhost:8081/subjects/secure-customer-events-value/versions/latest
 ```
 
-## 5. Data Flow Validation
+## <span style="color: #27AE60">5. Data Flow Validation</span>
 
-### Confirm event generator writes to MinIO inbox
+### <span style="color: #E67E22">Confirm event generator writes to MinIO inbox</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs event-generator --tail=40
 ```
@@ -120,7 +120,7 @@ docker compose -f docker/docker-compose.yml logs event-generator --tail=40
 Expected log pattern:
 - `Generated event ... -> minio://event-inbox/pending/...`
 
-### Confirm producer ingests pending files and publishes to Kafka
+### <span style="color: #884EA0">Confirm producer ingests pending files and publishes to Kafka</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs producer --tail=80
 ```
@@ -128,7 +128,7 @@ docker compose -f docker/docker-compose.yml logs producer --tail=80
 Expected log pattern:
 - `Spark micro-batch: ingested pending/... -> Kafka`
 
-### Confirm consumer receives and processes events
+### <span style="color: #D35400">Confirm consumer receives and processes events</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs consumer --tail=80
 ```
@@ -136,9 +136,9 @@ docker compose -f docker/docker-compose.yml logs consumer --tail=80
 Expected log pattern:
 - `Consumed decrypted event: ...`
 
-## 6. Encryption Validation
+## <span style="color: #3498DB">6. Encryption Validation</span>
 
-### Validate latest message contains encrypted `ssn`
+### <span style="color: #2ECC71">Validate latest message contains encrypted `ssn`</span>
 ```bash
 docker compose -f docker/docker-compose.yml exec -T kafka sh -lc "
 kafka-console-consumer --bootstrap-server kafka:29092 --topic secure-customer-events --partition 0 --offset latest --max-messages 1 --property print.value=true --timeout-ms 20000 > /tmp/latest.bin 2>/tmp/latest.err || true
@@ -154,7 +154,7 @@ Expected for new messages:
 Note:
 - Older historical messages may still contain plaintext if produced before encryption was enabled.
 
-## 7. Manual Publish Test (HTTP)
+## <span style="color: #E74C3C">7. Manual Publish Test (HTTP)</span>
 
 ```bash
 curl -X POST http://localhost:8080/api/events \
@@ -171,14 +171,14 @@ curl -X POST http://localhost:8080/api/events \
 Expected response:
 - `{"status":"queued",...}`
 
-## 8. MinIO Validation
+## <span style="color: #9B59B6">8. MinIO Validation</span>
 
-### Verify consumer sink bucket objects
+### <span style="color: #1ABC9C">Verify consumer sink bucket objects</span>
 ```bash
 docker exec minio sh -lc 'ls -R /data/secure-customer-events'
 ```
 
-### Verify inbox processing folders
+### <span style="color: #F1C40F">Verify inbox processing folders</span>
 ```bash
 docker exec minio sh -lc 'ls -R /data/event-inbox'
 ```
@@ -187,7 +187,7 @@ Expected:
 - `pending/` should stay near-empty under normal operation
 - `processed/` should accumulate ingested files
 
-## 9. Kafka UI Operations
+## <span style="color: #1E8BC3">9. Kafka UI Operations</span>
 
 Open:
 - `http://localhost:8085`
@@ -198,33 +198,33 @@ Checks:
 - Internal topic `_dek_registry_keys` visible when showing internal topics
 - Consumer group `secure-consumer-group` present
 
-## 10. Common Incidents and Recovery
+## <span style="color: #E67E22">10. Common Incidents and Recovery</span>
 
-### Consumer not running
+### <span style="color: #E74C3C">Consumer not running</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs consumer --tail=120
 docker compose -f docker/docker-compose.yml up -d --build consumer
 ```
 
-### Producer not publishing
+### <span style="color: #9B59B6">Producer not publishing</span>
 ```bash
 docker compose -f docker/docker-compose.yml logs producer --tail=120
 docker compose -f docker/docker-compose.yml up -d --build producer
 ```
 
-### KMS alias missing after reboot
+### <span style="color: #1ABC9C">KMS alias missing after reboot</span>
 Run the alias creation command in section 3, then restart producer and consumer:
 ```bash
 docker compose -f docker/docker-compose.yml up -d --build producer consumer
 ```
 
-### Stuck pipeline or old state contamination
+### <span style="color: #F1C40F">Stuck pipeline or old state contamination</span>
 ```bash
 docker compose -f docker/docker-compose.yml down -v
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-## 11. Quick Smoke Checklist
+## <span style="color: #3498DB">11. Quick Smoke Checklist</span>
 1. `docker compose ... ps` shows all required services up
 2. `awslocal kms list-aliases` includes `alias/customer-pii-kek`
 3. Topic list includes `_dek_registry_keys` and `secure-customer-events`
