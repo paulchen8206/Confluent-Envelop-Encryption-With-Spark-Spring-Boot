@@ -19,6 +19,7 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
@@ -29,6 +30,7 @@ import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers(disabledWithoutDocker = true)
+@Tag("integration")
 class KafkaSchemaRegistryIntegrationTest {
 
     private static final String TOPIC = "secure-customer-events";
@@ -37,10 +39,10 @@ class KafkaSchemaRegistryIntegrationTest {
     private static final Network NETWORK = Network.newNetwork();
 
     @Container
-    static final KafkaContainer KAFKA =
-          new KafkaContainer(
-              DockerImageName.parse("confluentinc/cp-kafka:7.7.1")
-                .asCompatibleSubstituteFor("apache/kafka"))
+        static final KafkaContainer KAFKA =
+              new KafkaContainer(
+                  DockerImageName.parse("confluentinc/cp-kafka:7.7.1")
+                    .asCompatibleSubstituteFor("apache/kafka"))
                     .withNetwork(NETWORK)
                     .withNetworkAliases("kafka")
                     .withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "true");
@@ -52,7 +54,7 @@ class KafkaSchemaRegistryIntegrationTest {
                     .withExposedPorts(8081)
                     .withEnv("SCHEMA_REGISTRY_HOST_NAME", "schema-registry")
                     .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:8081")
-                    .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9092")
+                  .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9092")
                     .withEnv("SCHEMA_REGISTRY_DEK_REGISTRY_TOPIC", "_dek_registry_keys")
                     .withEnv("SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR", "1")
                     .waitingFor(Wait.forHttp("/subjects").forStatusCode(200));

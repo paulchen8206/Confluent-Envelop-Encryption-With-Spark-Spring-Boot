@@ -111,4 +111,32 @@ Envelope encryption is a security pattern that involves encrypting data with a u
 - **Security**: The KEK never leaves the KMS or hardware security module.
 - **Key Rotation**: You can rotate the KEK without re-encrypting the data itself; you only need to decrypt and re-encrypt the DEK (re-wrapping).
 
+### <span style="color: #8E44AD">Producer-Key Registry-Consumer Diagram</span>
+```mermaid
+flowchart LR
+  P[Producer App]
+  SR[Schema Registry]
+  KR[_dek_registry_keys Topic\nDEK Registry]
+  KMS[LocalStack KMS\nKEK alias/customer-pii-kek]
+  KT[Kafka Topic\nsecure-customer-events]
+  C[Consumer App]
+
+  P -->|1. Request DEK material| SR
+  SR -->|2. KMS wrap/unwrap via KEK| KMS
+  KMS -->|3. Wrapped DEK metadata| SR
+
+  P -->|4. Bootstrap/lookup key record| KR
+  KR -->|5. Return wrapped DEK reference| P
+
+  P -->|6. Encrypt ssn with plaintext DEK| P
+  P -->|7. Publish encrypted payload| KT
+  KT -->|8. Consume encrypted payload| C
+
+  C -->|9. Resolve wrapped DEK metadata| KR
+  C -->|10. Request DEK unwrap| SR
+  SR -->|11. Unwrap DEK with KEK| KMS
+  SR -->|12. Return plaintext DEK| C
+  C -->|13. Decrypt ssn and process| C
+```
+
 This pattern is widely used in cloud environments, including AWS KMS, Google Cloud KMS, and Azure Key Vault.
