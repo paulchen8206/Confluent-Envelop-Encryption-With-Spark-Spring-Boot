@@ -111,7 +111,7 @@ Envelope encryption is a security pattern that involves encrypting data with a u
 - **Security**: The KEK never leaves the KMS or hardware security module.
 - **Key Rotation**: You can rotate the KEK without re-encrypting the data itself; you only need to decrypt and re-encrypt the DEK (re-wrapping).
 
-### <span style="color: #8E44AD">Producer-Key Registry-Consumer Diagram</span>
+### <span style="color: #8E44AD">Producer Envelope Flow Diagram</span>
 ```mermaid
 flowchart LR
   P[Producer App]
@@ -119,24 +119,33 @@ flowchart LR
   KR[_dek_registry_keys Topic\nDEK Registry]
   KMS[LocalStack KMS\nKEK alias/customer-pii-kek]
   KT[Kafka Topic\nsecure-customer-events]
-  C[Consumer App]
 
   P -->|1. Request DEK material| SR
-  SR -->|2. KMS wrap/unwrap via KEK| KMS
-  KMS -->|3. Wrapped DEK metadata| SR
+  SR -->|2. Wrap DEK via KEK| KMS
+  KMS -->|3. Return wrapped DEK metadata| SR
+  SR -->|4. Provide DEK metadata for encryption| P
 
-  P -->|4. Bootstrap/lookup key record| KR
-  KR -->|5. Return wrapped DEK reference| P
+  P -->|5. Bootstrap or update key record| KR
+  P -->|6. Encrypt ssn with DEK| P
+  P -->|7. Publish encrypted event| KT
+```
 
-  P -->|6. Encrypt ssn with plaintext DEK| P
-  P -->|7. Publish encrypted payload| KT
-  KT -->|8. Consume encrypted payload| C
+### <span style="color: #1ABC9C">Consumer Envelope Flow Diagram</span>
+```mermaid
+flowchart LR
+  KT[Kafka Topic\nsecure-customer-events]
+  C[Consumer App]
+  KR[_dek_registry_keys Topic\nDEK Registry]
+  SR[Schema Registry]
+  KMS[LocalStack KMS\nKEK alias/customer-pii-kek]
 
-  C -->|9. Resolve wrapped DEK metadata| KR
-  C -->|10. Request DEK unwrap| SR
-  SR -->|11. Unwrap DEK with KEK| KMS
-  SR -->|12. Return plaintext DEK| C
-  C -->|13. Decrypt ssn and process| C
+  KT -->|1. Consume encrypted payload| C
+  C -->|2. Resolve wrapped DEK metadata| KR
+  C -->|3. Request DEK unwrap| SR
+  SR -->|4. Unwrap DEK via KEK| KMS
+  KMS -->|5. Return unwrapped DEK material| SR
+  SR -->|6. Provide DEK for decryption| C
+  C -->|7. Decrypt ssn and process event| C
 ```
 
 This pattern is widely used in cloud environments, including AWS KMS, Google Cloud KMS, and Azure Key Vault.
